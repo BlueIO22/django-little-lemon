@@ -9,6 +9,7 @@ urlpatterns = [
     path('category/', views.categories),
     path('category/<int:pk>', views.category),
     path('orders/', views.orders),
+    path('orders/<int:pk>', views.order),
     path('groups/manager/users', views.managers),
     path('groups/delivery-crew/users', views.delivery_crew),
     path('me', views.me),

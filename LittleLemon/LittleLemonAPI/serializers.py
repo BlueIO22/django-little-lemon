@@ -13,11 +13,11 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'title', 'slug']
         
 class OrderSerializer(serializers.ModelSerializer):
-    deliverycrew = serializers.StringRelatedField(read_only=True)
-    owner = serializers.StringRelatedField(read_only=True)
+    delivery_crew = serializers.StringRelatedField(read_only=True)
+    user = serializers.StringRelatedField(read_only=True)
     class Meta: 
         model = Order
-        fields = ['id', 'owner', 'deliverycrew', 'status', 'total', 'date']
+        fields = ['id', 'user', 'delivery_crew', 'status', 'total', 'date']
         
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:

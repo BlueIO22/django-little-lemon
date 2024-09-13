@@ -2,6 +2,7 @@ from datetime import datetime
 from django.shortcuts import get_object_or_404, render
 from django.http import HttpResponse
 from django.utils.text import slugify
+from django.db.models import Q
 
 from LittleLemonAPI.serializers import CategorySerializer, MenuItemSerializer, OrderSerializer
 from LittleLemonAPI.utils import NO_ACCESS, calculate_price, calculate_total, isForbidden
@@ -149,11 +150,32 @@ def delivery_crew(request):
 def me(request):
     return Response({"groups": json.dumps([{"name": value.name} for value in request.user.groups.all()])})
 
+def isOrderBlockedForUser(request):
+    isDeliveryCrew = request.user.groups.filter(name="Delivery Crew").exists()
+    isCustomer = request.user.groups.filter(name="Customer").exists()
+    
+    if isCustomer and order.user is not request.user:
+        return FORBIDDEN_RESPONSE
+    
+    if isDeliveryCrew and order.delivery_crew is not request.user:
+        return FORBIDDEN_RESPONSE
+
+
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def orders(request):
+    currentUser = User.objects.get(pk=request.user.id) 
+    isManager = request.user.groups.filter(name="Manager").exists()
+    isAdmin = request.user.is_staff
+    
     if request.method == "GET":
-        orders = Order.objects.select_related("user", "delivery_crew").all()
+        orders = []
+        
+        if isAdmin or isManager:
+            orders = Order.objects.select_related("user", "delivery_crew").all()
+        else:
+            orders = Order.objects.select_related("user", "delivery_crew").filter(Q(user = currentUser) | Q(delivery_crew = currentUser)).all()
+        
         return Response(OrderSerializer(orders, many=True).data, status=status.HTTP_200_OK)
     
     if request.method == "POST":
@@ -182,16 +204,37 @@ def orders(request):
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def order(request, pk):
-    order = Order.objects.get(pk=pk)
+    order = Order.objects.select_related("user", "delivery_crew").get(pk=pk)
+    isManager = request.user.groups.filter(name="Manager").exists()
     isDeliveryCrew = request.user.groups.filter(name="Delivery Crew").exists()
+
+    isOrderBlockedForUser(request)
     
     if request.method == "GET":
-        if isDeliveryCrew and order.delivery_crew is not request.user:
-            return Response({"message", "delivery crew can only watch orders assigned to them"})
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
     
-    if isForbidden(request, groups={"Delivery Crew": ['GET', 'PUT']}):
+    if isForbidden(request, groups={"Delivery Crew": ['PUT'], "Manager": ['PUT']}):
         return FORBIDDEN_RESPONSE
     
     if request.method == "PUT":
-       
+        delivery_crew = request.data.get("delivery_crew")
+        orderstatus = request.data.get("status")
+        
+        if status and isDeliveryCrew:
+            order.status = orderstatus
+            return Response({"message", "ok"}, status=status.HTTP_200_OK)
+        
+        if delivery_crew and isManager:
+            deliveryUser = User.objects.filter(username=delivery_crew)[0]
+            print(deliveryUser)
+            if deliveryUser:
+                order.delivery_crew = deliveryUser
+                return Response({"message", "ok"}, status=status.HTTP_200_OK) 
+            
+    return Response({"message": "An Error has occoured"}, status=status.HTTP_200_OK)
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def orderItems(request):
+    
+    
