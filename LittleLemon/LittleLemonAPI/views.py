@@ -4,17 +4,19 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 from django.db.models import Q
 
-from LittleLemonAPI.serializers import CategorySerializer, MenuItemSerializer, OrderSerializer
+from LittleLemonAPI.serializers import CartSerializer, CategorySerializer, MenuItemSerializer, OrderItemSerializer, OrderSerializer
 from LittleLemonAPI.utils import NO_ACCESS, calculate_price, calculate_total, isForbidden
 from .models import Category, MenuItem, Order, OrderItem, Cart
 from django.contrib.auth.models import User, Group
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from django.core.paginator import Paginator, EmptyPage
 import json
 
 FORBIDDEN_RESPONSE = Response({"message", NO_ACCESS}, status=status.HTTP_403_FORBIDDEN)
+BAD_REQUESTS_RESPONSE = Response({"message", "You did not provide enough arugments"}, status = status.HTTP_400_BAD_REQUEST)
 
 # Create your views here.
 def home(request):
@@ -38,8 +40,8 @@ def categories(request):
         
         if title or slug:
                 category = Category.objects.create(title = title, slug = slug)
-                return Response(dict({"message":"ok", "category": json.dumps(category)}), status=status.HTTP_200_OK) 
-        return Response({"message", "You did not provide enough arguments"}, status = status.HTTP_400_BAD_REQUEST) 
+                return Response(dict({"message":"ok", "category": CategorySerializer(category).data}), status=status.HTTP_200_OK) 
+        return BAD_REQUESTS_RESPONSE
 
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAuthenticated])
@@ -63,7 +65,25 @@ def menu_items(request):
         return FORBIDDEN_RESPONSE
     
     if request.method == "GET": 
+        category_name = request.query_params.get("category")
+        ordering = request.query_params.get("ordering")
         menuItems = MenuItem.objects.select_related("category").all()
+        perpage = request.query_params.get("perpage", default=2)
+        page = request.query_params.get("page", default=1)
+        
+        if category_name: 
+            menuItems = menuItems.filter(category__title = category_name)
+        
+        if ordering: 
+            menuItems = menuItems.order_by(ordering)    
+            
+        paginator = Paginator(menuItems, per_page=perpage)
+        
+        try:
+            menuItems = paginator.page(number=page)
+        except: 
+            menuItems = []
+            
         serialized_menuItems = MenuItemSerializer(menuItems, many=True)
         return Response(serialized_menuItems.data, status=status.HTTP_200_OK)
     
@@ -78,7 +98,7 @@ def menu_items(request):
             menuItem = MenuItem.objects.create(title = title, price = price, featured = featured, category = category)
             return Response(dict({"message": "menu item created", "menuItem": MenuItemSerializer(menuItem).data}))
     
-    return Response({"message", "You did not provide correct amount of arguments"}, status=status.HTTP_400_BAD_REQUEST)
+    return BAD_REQUESTS_RESPONSE
 
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([])
@@ -97,7 +117,7 @@ def menu_item(request, pk):
             menuItem.featured = featured
             menuItem.save()
             return Response(dict({"message": "menu item updated", "menuItem": MenuItemSerializer(menuItem).data}), status = status.HTTP_200_OK)
-        return Response({"message", "Please provide featured flag"}, status = status.HTTP_400_BAD_REQUEST)
+        return BAD_REQUESTS_RESPONSE
     
     if request.method == "DELETE":
         print("Deleting")
@@ -121,8 +141,34 @@ def managers(request):
             
         return Response({"message", "ok"})
     
-    return Response({"message", "error"}, status=status.HTTP_400_BAD_REQUEST)
+    return BAD_REQUESTS_RESPONSE
 
+@api_view(['POST'])
+@permission_classes([])
+def customer(request):
+    username = request.data.get("username")
+    password = request.data.get("password")
+    email = request.data.get("email")
+    
+    foundUser = User.objects.filter(username = username)
+    
+    if foundUser:
+        return Response({"message", "user allready exists"}, status=status.HTTP_200_OK)
+    
+    if username and email and password:
+        user = User.objects.create(
+            username = username,
+            email = email,
+            password = password)
+        
+        customers = Group.objects.get(name="Customer")
+        customers.user_set.add(user)
+        
+        return Response({"message", "User has been added"}, status=status.HTTP_200_OK)
+
+        
+    return Response({"message", ""})
+ 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def delivery_crew(request):
@@ -142,7 +188,7 @@ def delivery_crew(request):
             
         return Response({"message", "ok"})
     
-    return Response({"message", "You did not supply username"}, status=status.HTTP_400_BAD_REQUEST)
+    return BAD_REQUESTS_RESPONSE
 
 
 @api_view(["GET"])
@@ -150,7 +196,7 @@ def delivery_crew(request):
 def me(request):
     return Response({"groups": json.dumps([{"name": value.name} for value in request.user.groups.all()])})
 
-def isOrderBlockedForUser(request):
+def isOrderBlockedForUser(request, order):
     isDeliveryCrew = request.user.groups.filter(name="Delivery Crew").exists()
     isCustomer = request.user.groups.filter(name="Customer").exists()
     
@@ -159,6 +205,8 @@ def isOrderBlockedForUser(request):
     
     if isDeliveryCrew and order.delivery_crew is not request.user:
         return FORBIDDEN_RESPONSE
+    
+    return False
 
 
 @api_view(["GET", "POST"])
@@ -179,25 +227,23 @@ def orders(request):
         return Response(OrderSerializer(orders, many=True).data, status=status.HTTP_200_OK)
     
     if request.method == "POST":
-        user = request.user
-        orderlines = request.data.get("orderlines")
-        total = calculate_total(orderlines)
+        user = request.user 
         date = datetime.today()
         
-        # placing order
+        cartItems = Cart.objects.filter(user = request.user)
+        
+        total = 0
+        for cartItem in cartItems:
+            total += cartItem.price
+        
         order = Order.objects.create(user = user, date = date, total = total, delivery_crew = None)
         
         if order: 
-            for orderline in json.loads(orderlines):
-                order = order
-                menu_item = MenuItem.objects.get(pk = orderline.get("menu_item"))
-                quantity = orderline.get("quantity")
-                unit_price = orderline.get("unit_price")
-                price = calculate_price(unit_price, quantity)
-                
-                if order and menu_item and quantity and unit_price and price:
-                    OrderItem.objects.create(order=order, quantity=quantity, unit_price = unit_price, price = price, menuitem = menu_item)
-            
+            for item in cartItems: 
+                OrderItem.objects.create(order=order, quantity=item.quantity, unit_price = item.unit_price, price = item.price, menuitem = item.menuitem)
+
+            Cart.objects.filter(user=user).delete()
+
         return Response({"message", "order created"}, status=status.HTTP_200_OK)
     
     
@@ -208,7 +254,7 @@ def order(request, pk):
     isManager = request.user.groups.filter(name="Manager").exists()
     isDeliveryCrew = request.user.groups.filter(name="Delivery Crew").exists()
 
-    isOrderBlockedForUser(request)
+    isOrderBlockedForUser(request, order)
     
     if request.method == "GET":
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
@@ -218,23 +264,45 @@ def order(request, pk):
     
     if request.method == "PUT":
         delivery_crew = request.data.get("delivery_crew")
-        orderstatus = request.data.get("status")
+        delivered = request.data.get("delivered")
         
-        if status and isDeliveryCrew:
-            order.status = orderstatus
+        if delivered and isDeliveryCrew:
+            order.status = delivered
+            order.save()
             return Response({"message", "ok"}, status=status.HTTP_200_OK)
         
         if delivery_crew and isManager:
             deliveryUser = User.objects.filter(username=delivery_crew)[0]
-            print(deliveryUser)
             if deliveryUser:
                 order.delivery_crew = deliveryUser
+                order.save()
                 return Response({"message", "ok"}, status=status.HTTP_200_OK) 
             
     return Response({"message": "An Error has occoured"}, status=status.HTTP_200_OK)
 
-@api_view(['GET', 'POST'])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def orderItems(request):
+    return Response({"orderItems", OrderItemSerializer(orderItems, many=True)}, status=status.HTTP_200_OK)
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def cart(request):
     
+    if request.method == "GET":
+        carts = Cart.objects.filter(user=request.user)
+        return Response(CartSerializer(carts, many=True).data, status = status.HTTP_200_OK)    
+
+    if request.method == "POST": 
+        user = User.objects.get(pk=request.user.id)
+        menu_item_id = request.data.get("menu_item_id")
+        quantity = request.data.get("quantity")
+        menuitem = MenuItem.objects.filter(pk=menu_item_id)
+       
+        if menuitem and user and quantity: 
+            price = menuitem.price * int(quantity)
+            Cart.objects.create(user=user, menuitem=menuitem, price=price, unit_price=menuitem.price, quantity=quantity)
+            currentCart = Cart.objects.filter(user=user)
+            return Response(dict({"message": "cart added", "cart": CartSerializer(currentCart, many=True).data}), status=status.HTTP_200_OK)
     
+    return BAD_REQUESTS_RESPONSE
