@@ -1,3 +1,0 @@
-super user
-username: marius
-password: test123

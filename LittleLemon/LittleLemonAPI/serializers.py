@@ -1,11 +1,11 @@
 from rest_framework import serializers
-from .models import Cart, Category, MenuItem, Order, OrderItem
+from .models import Booking, Cart, Category, MenuItem, Order, OrderItem
 
 class MenuItemSerializer(serializers.ModelSerializer):
     category = serializers.StringRelatedField()
     class Meta: 
         model = MenuItem
-        fields = ['id', 'title', 'price', 'featured', 'category']
+        fields = ['id', 'title', 'price', 'featured', 'category', 'image', 'description']
         
 class CategorySerializer(serializers.ModelSerializer):
     class Meta: 
@@ -29,6 +29,11 @@ class OrderSerializer(serializers.ModelSerializer):
         order = Order.objects.get(pk=obj.id)
         orderItems = OrderItem.objects.filter(order=order)
         return OrderItemSerializer(orderItems, many=True).data
+    
+class BookingSerializer(serializers.ModelSerializer):
+    class Meta: 
+        model = Booking
+        fields = "__all__"
 
 class CartSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField()

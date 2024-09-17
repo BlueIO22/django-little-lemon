@@ -4,23 +4,75 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 from django.db.models import Q
 
-from LittleLemonAPI.serializers import CartSerializer, CategorySerializer, MenuItemSerializer, OrderItemSerializer, OrderSerializer
+from LittleLemonAPI import serializers
+from LittleLemonAPI.forms import BookingForm
+from LittleLemonAPI.serializers import BookingSerializer, CartSerializer, CategorySerializer, MenuItemSerializer, OrderItemSerializer, OrderSerializer
 from LittleLemonAPI.utils import NO_ACCESS, calculate_price, calculate_total, isForbidden
-from .models import Category, MenuItem, Order, OrderItem, Cart
+from .models import Booking, Category, MenuItem, Order, OrderItem, Cart
 from django.contrib.auth.models import User, Group
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator, EmptyPage
 import json
 
 FORBIDDEN_RESPONSE = Response({"message", NO_ACCESS}, status=status.HTTP_403_FORBIDDEN)
 BAD_REQUESTS_RESPONSE = Response({"message", "You did not provide enough arugments"}, status = status.HTTP_400_BAD_REQUEST)
 
-# Create your views here.
 def home(request):
-    return HttpResponse("Hello World")
+    return render(request, 'index.html')
+
+def about(request):
+    return render(request, 'about.html')
+
+def reservations(request):
+    bookings = Booking.objects.all()
+    return render(request, 'bookings.html',{"bookings": json.dumps(BookingSerializer(bookings, many=True).data)})
+
+def book(request):
+    form = BookingForm()
+    if request.method == 'POST':
+        form = BookingForm(request.POST)
+        if form.is_valid():
+            form.save()
+    context = {'form':form}
+    return render(request, 'book.html', context)
+
+def menu(request):
+    menu_data = MenuItem.objects.all()
+    main_data = {"menu": menu_data}
+    return render(request, 'menu.html', {"menu": main_data})
+
+def display_menu_item(request, pk=None): 
+    if pk: 
+        menu_item = MenuItem.objects.get(pk=pk) 
+    else: 
+        menu_item = "" 
+    return render(request, 'menu_item.html', {"menu_item": menu_item}) 
+
+@csrf_exempt
+def bookings(request):
+    if request.method == 'POST':
+        data = json.load(request)
+        exist = Booking.objects.filter(reservation_date=data['reservation_date']).filter(
+            reservation_slot=data['reservation_slot']).exists()
+        if exist==False:
+            booking = Booking(
+                first_name=data['first_name'],
+                reservation_date=data['reservation_date'],
+                reservation_slot=data['reservation_slot'],
+            )
+            booking.save()
+        else:
+            return HttpResponse("{'error':1}", content_type='application/json')
+    
+    date = request.GET.get('date', datetime.today().date())
+
+    bookings = Booking.objects.all().filter(reservation_date=date)
+
+    return HttpResponse(json.dumps(BookingSerializer(bookings, many=True).data), content_type='application/json')
 
 @api_view(['POST', 'GET', 'PUT', 'DELETE'])
 @permission_classes([IsAuthenticated])
@@ -46,14 +98,10 @@ def categories(request):
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def category(request, pk):
-    isAdmin = request.user.is_staff
     category = Category.objects.get(pk=pk)
     
     if request.method == "GET":
         return Response(CategorySerializer(category).data, status=status.HTTP_200_OK)
-    
-    if isForbidden(request, groups=dict({"Customer": ["PUT"], "Manager": ["POST"]})):
-        return FORBIDDEN_RESPONSE
     
 
 @api_view(['GET', 'POST'])
@@ -91,11 +139,13 @@ def menu_items(request):
         title = request.data.get("title")
         price = request.data.get("price")
         featured = request.data.get("featured") or False
+        imageUrl = request.data.get("imageUrl")
+        description = request.data.get("description")
         category_id = request.data.get("category_id") or 1
         
         if title and price and category_id:
             category = Category.objects.get(pk=category_id) 
-            menuItem = MenuItem.objects.create(title = title, price = price, featured = featured, category = category)
+            menuItem = MenuItem.objects.create(title = title, price = price, featured = featured, category = category, image = imageUrl, description = description)
             return Response(dict({"message": "menu item created", "menuItem": MenuItemSerializer(menuItem).data}))
     
     return BAD_REQUESTS_RESPONSE
@@ -120,13 +170,12 @@ def menu_item(request, pk):
         return BAD_REQUESTS_RESPONSE
     
     if request.method == "DELETE":
-        print("Deleting")
         menuItem.delete()
         return Response({"message", "menu item deleted"}, status = status.HTTP_200_OK) 
     
      
 
-@api_view()
+@api_view(['POST'])
 @permission_classes([IsAdminUser])
 def managers(request):
     username = request.data["username"]
@@ -247,7 +296,7 @@ def orders(request):
         return Response({"message", "order created"}, status=status.HTTP_200_OK)
     
     
-@api_view(['GET', 'PUT', 'DELETE'])
+@api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated])
 def order(request, pk):
     order = Order.objects.select_related("user", "delivery_crew").get(pk=pk)
