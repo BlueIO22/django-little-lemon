@@ -105,13 +105,8 @@ def category(request, pk):
     
 
 @api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def menu_items(request):
-    isAdmin = request.user.is_staff
-    
-    if isAdmin == False and request.method == "POST":
-        return FORBIDDEN_RESPONSE
-    
     if request.method == "GET": 
         category_name = request.query_params.get("category")
         ordering = request.query_params.get("ordering")
@@ -136,6 +131,11 @@ def menu_items(request):
         return Response(serialized_menuItems.data, status=status.HTTP_200_OK)
     
     if request.method == "POST":
+        isAdmin = request.user.is_staff
+    
+        if isAdmin == False and request.method == "POST":
+            return FORBIDDEN_RESPONSE
+        
         title = request.data.get("title")
         price = request.data.get("price")
         featured = request.data.get("featured") or False
