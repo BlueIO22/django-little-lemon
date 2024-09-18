@@ -1,2 +1,2 @@
-# django-little-lemon
-Little Lemon API for coursera course
+# Meta: Backend Developer Capstone project
+Capstone project for the meta backend developer certificate
