@@ -41,7 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'djoser',
-    'LittleLemonAPI',
+    'LittleLemonBooking',
 ]
 
 MIDDLEWARE = [
@@ -124,10 +124,10 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = 'LittleLemonAPI/static/'
+STATIC_URL = 'LittleLemonBooking/static/'
 
 STATICFILES_DIRS = [
-    "LittleLemonAPI/static",
+    "LittleLemonBooking/static",
 ]
 
 # Default primary key field type

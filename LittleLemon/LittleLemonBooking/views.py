@@ -4,10 +4,10 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 from django.db.models import Q
 
-from LittleLemonAPI import serializers
-from LittleLemonAPI.forms import BookingForm
-from LittleLemonAPI.serializers import BookingSerializer, CartSerializer, CategorySerializer, MenuItemSerializer, OrderItemSerializer, OrderSerializer
-from LittleLemonAPI.utils import NO_ACCESS, calculate_price, calculate_total, isForbidden
+from LittleLemonBooking import serializers
+from LittleLemonBooking.forms import BookingForm
+from LittleLemonBooking.serializers import BookingSerializer, CartSerializer, CategorySerializer, MenuItemSerializer, OrderItemSerializer, OrderSerializer
+from LittleLemonBooking.utils import NO_ACCESS, calculate_price, calculate_total, isForbidden
 from .models import Booking, Category, MenuItem, Order, OrderItem, Cart
 from django.contrib.auth.models import User, Group
 from rest_framework.decorators import api_view, permission_classes
